@@ -44,7 +44,7 @@ else:
     st.session_state["project_path"] = project_path
 
 # Sidebar menu for script selection
-script_pages = ["e_commerce_scraper", "stock_control", "telegram_scrape_page"]
+script_pages = ["e_commerce_scraper_page", "stock_control", "telegram_scrape_page"]
 
 # Sidebar radio for selecting which script to run
 selected_script = st.sidebar.radio("Modül Seç Hcm", script_pages)
@@ -53,9 +53,9 @@ selected_script = st.sidebar.radio("Modül Seç Hcm", script_pages)
 if selected_script == "telegram_scrape_page":
     from pages.telegram_scrape_page import show_telegram_scraper_page
     show_telegram_scraper_page()
-elif selected_script == "e_commerce_scraper":
-    # Import and run e_commerce_scraper page script
-    # Assuming a function like show_e_commerce_scraper_page exists
+elif selected_script == "e_commerce_scraper_page":
+    from pages.e_commerce_scraper_page import show_ecommerce_scraper_page
+    show_ecommerce_scraper_page()
     pass
 elif selected_script == "stock_control":
     # Import and run stock_control page script
