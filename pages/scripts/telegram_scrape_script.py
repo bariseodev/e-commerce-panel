@@ -41,7 +41,9 @@ if not os.path.exists(image_folder):
 
 # Function to write to Excel
 def write_to_excel(product_name, description, images, price, size, original_description, output_file):
-    # Check if the file exists
+    output_dir = os.path.dirname(output_file)
+    os.makedirs(output_dir, exist_ok=True)
+
     try:
         workbook = openpyxl.load_workbook(output_file)
         sheet = workbook.active
