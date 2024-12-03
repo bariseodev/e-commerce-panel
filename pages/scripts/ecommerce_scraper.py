@@ -4,6 +4,15 @@ from bs4 import BeautifulSoup
 from PIL import Image
 from io import BytesIO
 import pandas as pd
+import subprocess
+import json
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+import time
 
 
 class BaseScraper:
@@ -151,6 +160,138 @@ class GemstoneScraper(BaseScraper):
             self.save_image(self.data['images'][0], img_name, img_index=1)
         else:
             pass
+
+class TrendyolScraper:
+    def __init__(self, url, pages=1):
+        self.url = url
+        self.pages = pages
+        self.driver = None
+
+    def setup_driver(self):
+        # Setup Selenium WebDriver
+        chrome_options = Options()
+        chrome_options.add_argument("--headless")  # Run in headless mode
+        chrome_options.add_argument("--disable-gpu")
+        chrome_options.add_argument("--no-sandbox")
+        user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36 OPR/114.0.0.0"
+        chrome_options.add_argument(f"user-agent={user_agent}")
+
+        chrome_service = Service("C:/chromedriver.exe")  # Update this with the correct path
+        self.driver = webdriver.Chrome(service=chrome_service, options=chrome_options)
+
+
+    def extract_links(self):
+        """Extract product links from the search results."""
+        if not self.driver:
+            self.setup_driver()
+
+        all_product_links = []
+        try:
+            for i in range(1, self.pages + 1):
+                print(f"Extracting from page {i}...")
+                page_url = f"{self.url}?pi={i}"
+                self.driver.get(page_url)
+                time.sleep(3)  # Wait for the page to load fully
+
+                product_cards = self.driver.find_elements(By.CLASS_NAME, "p-card-wrppr")
+                for card in product_cards:
+                    try:
+                        link_element = card.find_element(By.CSS_SELECTOR, "div.p-card-chldrn-cntnr.card-border a")
+                        link = link_element.get_attribute("href")
+                        all_product_links.append(link)
+                    except Exception as e:
+                        print(f"Error extracting link: {e}")
+        except Exception as e:
+            print(f"Error during link extraction: {e}")
+        finally:
+            self.driver.quit()
+        output_directory = os.path.join("pages", "scripts")
+        output_file_path = os.path.join(output_directory, "product_links.txt")
+
+        # Save the links to the specified file
+        with open(output_file_path, "w") as f:
+            for link in set(all_product_links):
+                f.write(link + "\n")
+        print(f"Extracted {len(all_product_links)} links")
+
+    def retrieve_product_details(self):
+        """Retrieve product details for each link and save to an Excel file."""
+        if not self.driver:
+            self.setup_driver()
+
+        input_directory = os.path.join("pages", "scripts")
+        input_file_path = os.path.join(input_directory, "product_links.txt")
+
+        # Load product links from the file
+        with open(input_file_path, "r") as f:
+            product_links = [line.strip() for line in f]
+
+        # Prepare the DataFrame for storing product details
+        columns = ['Ürün Adı', 'Fiyat', 'Satıcı', 'Kategori', 'Kategori ID', 'Ürün Kodu', 'Görseller']
+        df = pd.DataFrame(columns=columns)
+
+        for j, product_link in enumerate(product_links):
+            try:
+                print(f"Processing product {j + 1}: {product_link}")
+                self.driver.get(product_link)
+                WebDriverWait(self.driver, 10).until(
+                    EC.presence_of_element_located((By.XPATH, '//script[@type="application/ld+json"]'))
+                )
+
+                # Extract JSON-LD data
+                try:
+                    script_tag = self.driver.find_element(By.XPATH, '//script[@type="application/ld+json"]')
+                    json_data = script_tag.get_attribute("innerHTML")
+                    product_data = json.loads(json_data)
+                except json.JSONDecodeError as e:
+                    print(f"Error decoding JSON for {product_link}: {e}")
+                    continue
+                except Exception as e:
+                    print(f"Error extracting JSON data for {product_link}: {e}")
+                    continue
+
+                # Parse product details from JSON
+                product_name = product_data.get("name", "Not Available")
+                price = product_data.get("offers", {}).get("price", "Not Available")
+                price_currency = product_data.get("offers", {}).get("priceCurrency", "Not Available")
+                merchant = product_data.get("offers", {}).get("seller", {}).get("name", "Not Available")
+                category = product_data.get("category", "Not Available")
+                category_id = product_data.get("offers", {}).get("categoryID", "Not Available")
+                product_code = product_data.get("sku", "Not Available")
+
+                # Extract images
+                images = product_data.get("image", [])
+                image_urls = []
+                if isinstance(images, list):
+                    image_urls = [str(img) for img in images if isinstance(img, str)]
+                elif isinstance(images, dict) and "contentUrl" in images:
+                    image_urls.append(str(images["contentUrl"]))
+                image_urls_str = ", ".join(image_urls)
+
+                # Save product details into the DataFrame
+                product_details = pd.DataFrame([{
+                    'Ürün Adı': product_name,
+                    'Fiyat': f"{price} {price_currency}",
+                    'Satıcı': merchant,
+                    'Kategori': category,
+                    'Kategori ID': category_id,
+                    'Ürün Kodu': product_code,
+                    'Görseller': image_urls_str
+                }])
+                df = pd.concat([df, product_details], ignore_index=True)
+
+                # Save to Excel after each iteration
+                df.to_excel("product_details.xlsx", index=False, engine="openpyxl")
+                print(f"Product {product_name} saved successfully.")
+
+            except Exception as e:
+                print(f"Error processing {product_link}: {e}")
+                continue
+
+        # Final cleanup
+        self.driver.quit()
+        print(f"Total products processed: {len(df)}")
+        print("Details saved to product_details.xlsx")
 
 
 def process_urls_from_excel():
